@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Promptable Machine — Teachable Text Classifier</title>
+  <link rel="icon" href="data:," />
+  <!-- TensorFlow.js + USE -->
+  <script defer src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/@tensorflow-models/universal-sentence-encoder@1.3.3/dist/universal-sentence-encoder.min.js"></script>
+  <style>
+    :root {
+      --bg: #0b1020; --fg: #ecf2ff; --muted: #b7c3d7; --card: #141a2e;
+      --accent: #7aa2ff; --accent-2: #64d2ff; --border: #26304b;
+      --ok: #3ddc97; --warn: #ffb020; --err: #ff5c8a;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--fg); }
+    header { padding: 24px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, rgba(122,162,255,0.08), transparent 70%); }
+    header h1 { margin: 0 0 8px; font-size: 24px; }
+    header p { margin: 0; color: var(--muted); }
+    main { max-width: 1100px; margin: 24px auto 64px; padding: 0 16px; }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+    .card h2 { margin: 0 0 10px; font-size: 18px; }
+    .card h3 { margin: 10px 0 8px; font-size: 16px; }
+    .muted { color: var(--muted); }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 6px; }
+    input[type="text"], input[type="number"], select, textarea {
+      width: 100%; padding: 10px 12px; background: #0f1729; color: var(--fg); border: 1px solid var(--border);
+      border-radius: 10px; outline: none;
+    }
+    textarea { min-height: 100px; resize: vertical; }
+    button {
+      appearance: none; border: 1px solid var(--border); background: #122043; color: var(--fg);
+      padding: 10px 14px; border-radius: 10px; cursor: pointer;
+    }
+    button.primary { background: linear-gradient(180deg, var(--accent), var(--accent-2)); color: #071224; border: none; }
+    button.ghost { background: transparent; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .kvs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 8px; }
+    .kv { background: #0f1729; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+    .kv .k { font-size: 11px; color: var(--muted); margin: 0; }
+    .kv .v { font-size: 14px; margin: 2px 0 0; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: #0f1729; border: 1px solid var(--border); }
+    .list { display: flex; gap: 8px; flex-wrap: wrap; }
+    .status { min-height: 22px; color: var(--muted); }
+    progress { width: 100%; height: 10px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+    .conf { overflow-x: auto; }
+    .conf table { min-width: 480px; }
+    .conf td, .conf th { text-align: center; }
+    .good { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .err  { color: var(--err); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    footer { max-width: 1100px; margin: 16px auto 40px; padding: 0 16px; color: var(--muted); }
+    .small { font-size: 12px; }
+    .divider { height:1px; background: var(--border); margin: 12px 0; }
+    .hint { font-size: 12px; color: var(--muted); }
+    .right { margin-left: auto; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Promptable Machine</h1>
+    <p>Create a small text classifier from examples (“prompts”) in your browser—no servers or keys.</p>
+  </header>
+
+  <main>
+    <div class="grid">
+      <!-- Step 1: Classes -->
+      <section class="card" style="grid-column: span 5;">
+        <h2>1) Define your classes</h2>
+        <div class="row">
+          <input id="className" type="text" placeholder="e.g., Positive, Negative, Bug report, Feature request" />
+          <button id="addClassBtn" class="primary">Add class</button>
+        </div>
+        <div class="divider"></div>
+        <div>
+          <label>Classes</label>
+          <div id="classList" class="list"></div>
+          <p class="hint">Tip: Aim for at least 2–3 classes.</p>
+        </div>
+      </section>
+
+      <!-- Step 2: Examples -->
+      <section class="card" style="grid-column: span 7;">
+        <h2>2) Add prompt examples</h2>
+        <div class="row">
+          <div style="flex: 0 0 260px;">
+            <label for="classSelect">Assign to class</label>
+            <select id="classSelect"></select>
+          </div>
+          <div class="right">
+            <button id="downloadDatasetBtn" class="ghost">Download dataset</button>
+          </div>
+        </div>
+        <label for="exampleText">Example text</label>
+        <textarea id="exampleText" placeholder="Write one example per add. Keep it short (1–2 sentences)."></textarea>
+        <div class="row">
+          <button id="addExampleBtn" class="primary">Add example</button>
+          <span id="addExampleStatus" class="status"></span>
+        </div>
+        <div class="kvs" id="countsPanel"></div>
+        <div class="divider"></div>
+        <h3>Recent examples</h3>
+        <div id="recentTable"></div>
+      </section>
+
+      <!-- Step 3: Train -->
+      <section class="card" style="grid-column: span 7;">
+        <h2>3) Train</h2>
+        <div class="grid" style="grid-template-columns: repeat(12, 1fr); gap: 12px;">
+          <div style="grid-column: span 3;">
+            <label for="epochs">Epochs</label>
+            <input id="epochs" type="number" min="1" max="200" value="20"/>
+          </div>
+          <div style="grid-column: span 3;">
+            <label for="batchSize">Batch Size</label>
+            <input id="batchSize" type="number" min="1" max="128" value="16"/>
+          </div>
+          <div style="grid-column: span 3;">
+            <label for="testSplit">Test Split</label>
+            <input id="testSplit" type="number" min="10" max="50" value="20" />
+            <div class="hint">Percent for holdout</div>
+          </div>
+          <div style="grid-column: span 3; display:flex; align-items:flex-end; justify-content:flex-end;">
+            <button id="trainBtn" class="primary">Train model</button>
+          </div>
+        </div>
+        <div class="row" style="margin-top: 8px;">
+          <progress id="trainProgress" max="1" value="0"></progress>
+        </div>
+        <div id="trainStatus" class="status"></div>
+        <div id="metrics"></div>
+        <div class="conf" id="confusionPanel"></div>
+        <div class="row" style="margin-top: 8px;">
+          <button id="saveModelBtn" disabled>Download model (head)</button>
+          <button id="downloadLabelsBtn" disabled>Download labels</button>
+        </div>
+      </section>
+
+      <!-- Step 4: Try it -->
+      <section class="card" style="grid-column: span 5;">
+        <h2>4) Try it</h2>
+        <label for="predictText">Enter new text</label>
+        <textarea id="predictText" placeholder="Paste a sentence or two to classify…"></textarea>
+        <div class="row">
+          <button id="predictBtn">Predict</button>
+          <span id="predictStatus" class="status"></span>
+        </div>
+        <div id="predictions"></div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="small">
+    <p>Built with TensorFlow.js + Universal Sentence Encoder. All data & training run locally in your browser.</p>
+  </footer>
+
+  <script>
+    // --- State ---
+    let embedder = null;          // USE model
+    let classifier = null;        // tf.Model head
+    const classes = [];           // ["Positive", "Negative", ...]
+    const dataset = [];           // [{ text, labelIndex, labelName, ts }, ...]
+    let isReady = false;
+
+    const els = {};
+    document.addEventListener('DOMContentLoaded', init);
+
+    async function init() {
+      // Cache elements
+      const byId = id => document.getElementById(id);
+      Object.assign(els, {
+        className: byId('className'),
+        addClassBtn: byId('addClassBtn'),
+        classList: byId('classList'),
+        classSelect: byId('classSelect'),
+        exampleText: byId('exampleText'),
+        addExampleBtn: byId('addExampleBtn'),
+        addExampleStatus: byId('addExampleStatus'),
+        countsPanel: byId('countsPanel'),
+        recentTable: byId('recentTable'),
+        epochs: byId('epochs'),
+        batchSize: byId('batchSize'),
+        testSplit: byId('testSplit'),
+        trainBtn: byId('trainBtn'),
+        trainProgress: byId('trainProgress'),
+        trainStatus: byId('trainStatus'),
+        metrics: byId('metrics'),
+        confusionPanel: byId('confusionPanel'),
+        saveModelBtn: byId('saveModelBtn'),
+        downloadLabelsBtn: byId('downloadLabelsBtn'),
+        downloadDatasetBtn: byId('downloadDatasetBtn'),
+        predictText: byId('predictText'),
+        predictBtn: byId('predictBtn'),
+        predictStatus: byId('predictStatus'),
+        predictions: byId('predictions'),
+      });
+
+      // Wire UI
+      els.addClassBtn.addEventListener('click', onAddClass);
+      els.addExampleBtn.addEventListener('click', onAddExample);
+      els.trainBtn.addEventListener('click', onTrain);
+      els.saveModelBtn.addEventListener('click', onSaveModel);
+      els.downloadLabelsBtn.addEventListener('click', onDownloadLabels);
+      els.downloadDatasetBtn.addEventListener('click', onDownloadDataset);
+      els.predictBtn.addEventListener('click', onPredict);
+
+      // Load USE
+      setStatus(els.trainStatus, 'Loading Universal Sentence Encoder…');
+      try {
+        // Wait for TF + USE scripts (loaded via <script defer>)
+        await waitFor(() => window.use && window.tf);
+        embedder = await use.load();
+        isReady = true;
+        setStatus(els.trainStatus, 'Embedder loaded ✓');
+      } catch (err) {
+        setStatus(els.trainStatus, `Failed to load embedder: ${err.message}`, 'err');
+      }
+
+      refreshUI();
+    }
+
+    // ---------- UI helpers ----------
+    function setStatus(el, msg, tone = null) {
+      el.textContent = msg || '';
+      el.classList.remove('good','warn','err');
+      if (tone) el.classList.add(tone);
+    }
+
+    function waitFor(pred, timeoutMs = 10000, pollMs = 50) {
+      const t0 = performance.now();
+      return new Promise((resolve, reject) => {
+        const iv = setInterval(() => {
+          if (pred()) { clearInterval(iv); resolve(); }
+          else if (performance.now() - t0 > timeoutMs) { clearInterval(iv); reject(new Error('Timeout waiting for scripts')); }
+        }, pollMs);
+      });
+    }
+
+    function refreshUI() {
+      // Classes list (pills) + select
+      els.classList.innerHTML = '';
+      els.classSelect.innerHTML = '';
+      classes.forEach((name, idx) => {
+        const pill = document.createElement('span');
+        pill.className = 'pill';
+        pill.innerHTML = `<span class="mono">${idx}</span> ${escapeHTML(name)} <button class="ghost" title="Remove">✕</button>`;
+        pill.querySelector('button').addEventListener('click', () => removeClass(idx));
+        els.classList.appendChild(pill);
+
+        const opt = document.createElement('option');
+        opt.value = idx; opt.textContent = name;
+        els.classSelect.appendChild(opt);
+      });
+
+      // Counts by class
+      renderCounts();
+
+      // Recent examples
+      renderRecentExamples();
+
+      // Enable/disable actions
+      els.addExampleBtn.disabled = classes.length === 0 || !els.exampleText.value.trim();
+      els.trainBtn.disabled = !(classes.length >= 2 && totalExamples() >= 4 && isReady);
+      els.saveModelBtn.disabled = !classifier;
+      els.downloadLabelsBtn.disabled = classes.length === 0;
+    }
+
+    function renderCounts() {
+      const counts = classes.map((_, i) => dataset.filter(d => d.labelIndex === i).length);
+      els.countsPanel.innerHTML = classes.map((name, i) => `
+        <div class="kv">
+          <p class="k">${escapeHTML(name)}</p>
+          <p class="v">${counts[i]} example${counts[i] === 1 ? '' : 's'}</p>
+        </div>
+      `).join('');
+    }
+
+    function renderRecentExamples(limit = 12) {
+      const rows = dataset.slice(-limit).map(d => `
+        <tr>
+          <td class="mono">${d.labelIndex}</td>
+          <td>${escapeHTML(d.labelName)}</td>
+          <td>${escapeHTML(d.text)}</td>
+          <td><button class="ghost" data-ts="${d.ts}">Delete</button></td>
+        </tr>
+      `).reverse().join('');
+      els.recentTable.innerHTML = `
+        <table>
+          <thead><tr><th>#</th><th>Class</th><th>Text</th><th></th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="4" class="muted">No examples yet.</td></tr>'}</tbody>
+        </table>
+      `;
+      els.recentTable.querySelectorAll('button[data-ts]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const ts = Number(btn.getAttribute('data-ts'));
+          const idx = dataset.findIndex(x => x.ts === ts);
+          if (idx >= 0) { dataset.splice(idx, 1); refreshUI(); }
+        });
+      });
+    }
+
+    function totalExamples() { return dataset.length; }
+
+    // ---------- Class management ----------
+    function onAddClass() {
+      const name = els.className.value.trim();
+      if (!name) return;
+      if (classes.includes(name)) { alert('Class already exists.'); return; }
+      classes.push(name);
+      els.className.value = '';
+      refreshUI();
+    }
+
+    function removeClass(idx) {
+      const name = classes[idx];
+      if (!confirm(`Remove class "${name}" and its examples?`)) return;
+      classes.splice(idx, 1);
+
+      // Remove or reindex examples
+      for (let i = dataset.length - 1; i >= 0; i--) {
+        if (dataset[i].labelName === name) dataset.splice(i, 1);
+      }
+      // Reindex remaining examples
+      dataset.forEach(d => { d.labelIndex = classes.indexOf(d.labelName); });
+
+      refreshUI();
+    }
+
+    // ---------- Examples ----------
+    function onAddExample() {
+      const text = els.exampleText.value.trim();
+      if (!text) { setStatus(els.addExampleStatus, 'Provide some text.', 'warn'); return; }
+      const idx = Number(els.classSelect.value);
+      if (isNaN(idx) || idx < 0) { setStatus(els.addExampleStatus, 'Add a class first.', 'warn'); return; }
+
+      dataset.push({
+        text,
+        labelIndex: idx,
+        labelName: classes[idx],
+        ts: Date.now() + Math.random()
+      });
+      els.exampleText.value = '';
+      setStatus(els.addExampleStatus, 'Added ✓', 'good');
+      setTimeout(() => setStatus(els.addExampleStatus, ''), 900);
+      refreshUI();
+    }
+
+    // ---------- Training ----------
+    async function onTrain() {
+      if (!isReady) { setStatus(els.trainStatus, 'Model not loaded yet.', 'warn'); return; }
+      if (classes.length < 2) { setStatus(els.trainStatus, 'Need at least 2 classes.', 'warn'); return; }
+      if (dataset.length < classes.length * 2) { setStatus(els.trainStatus, 'Add a few more examples per class.', 'warn'); return; }
+
+      const epochs = clampInt(els.epochs.value, 1, 300);
+      const batchSize = clampInt(els.batchSize.value, 1, 128);
+      const testPct = clampInt(els.testSplit.value, 5, 50);
+
+      els.trainBtn.disabled = true;
+      els.trainProgress.value = 0;
+      setStatus(els.trainStatus, 'Preparing data…');
+
+      // Split dataset (stratified-ish: simple shuffle → split)
+      const shuffle = tf.util.createShuffledIndices(dataset.length);
+      const testCount = Math.max(1, Math.floor((testPct / 100) * dataset.length));
+      const testIdxs = new Set(shuffle.slice(0, testCount));
+      const train = [], test = [];
+      dataset.forEach((d, i) => (testIdxs.has(i) ? test : train).push(d));
+
+      // Extract texts & labels
+      const trainTexts = train.map(d => d.text);
+      const trainLabels = train.map(d => d.labelIndex);
+      const testTexts  = test.map(d => d.text);
+      const testLabels = test.map(d => d.labelIndex);
+
+      // Embed
+      let xTrain, xTest, yTrain, yTest;
+      try {
+        xTrain = await embedder.embed(trainTexts);
+        xTest  = testTexts.length ? await embedder.embed(testTexts) : null;
+        yTrain = labelsToOneHot(trainLabels, classes.length);
+        yTest  = testLabels.length ? labelsToOneHot(testLabels, classes.length) : null;
+      } catch (err) {
+        setStatus(els.trainStatus, 'Embedding failed: ' + err.message, 'err');
+        els.trainBtn.disabled = false;
+        return;
+      }
+
+      // Build classifier
+      classifier?.dispose();
+      classifier = buildClassifier(classes.length);
+
+      // Train
+      const steps = epochs;
+      let lastValAcc = null;
+      setStatus(els.trainStatus, 'Training…');
+      const t0 = performance.now();
+      try {
+        await classifier.fit(xTrain, yTrain, {
+          epochs,
+          batchSize,
+          shuffle: true,
+          validationSplit: train.length > 4 ? 0.15 : 0,
+          callbacks: {
+            onEpochEnd: async (epoch, logs) => {
+              const p = (epoch + 1) / steps;
+              els.trainProgress.value = p;
+              lastValAcc = logs.val_acc ?? logs.val_accuracy ?? null;
+              const acc = fmtPct(logs.acc ?? logs.accuracy);
+              const vAcc = lastValAcc != null ? fmtPct(lastValAcc) : '—';
+              els.metrics.innerHTML = metricBlock({
+                epochsDone: epoch + 1, epochsTotal: epochs,
+                loss: logs.loss, acc, vLoss: logs.val_loss, vAcc
+              });
+              await tf.nextFrame();
+            }
+          }
+        });
+      } catch (err) {
+        setStatus(els.trainStatus, 'Training failed: ' + err.message, 'err');
+        cleanupTrainTensors();
+        els.trainBtn.disabled = false;
+        return;
+      }
+
+      // Evaluate
+      let testAcc = null, conf = null;
+      if (xTest && yTest) {
+        const pred = classifier.predict(xTest);
+        const predIdx = pred.argMax(-1);
+        const trueIdx = yTest.argMax(-1);
+        const preds = Array.from(await predIdx.data());
+        const truths = Array.from(await trueIdx.data());
+        pred.dispose(); predIdx.dispose(); trueIdx.dispose();
+
+        testAcc = accuracy(truths, preds);
+        conf = confusionMatrix(truths, preds, classes.length);
+      }
+
+      // UI: report
+      const t1 = performance.now();
+      const trainSecs = ((t1 - t0) / 1000).toFixed(1);
+      setStatus(els.trainStatus, `Done in ${trainSecs}s.`, 'good');
+      if (testAcc != null) {
+        const color = testAcc >= 0.85 ? 'good' : testAcc >= 0.65 ? 'warn' : 'err';
+        els.metrics.insertAdjacentHTML('beforeend',
+          `<div class="kvs" style="margin-top:8px;">
+            <div class="kv"><p class="k">Holdout accuracy</p><p class="v ${color}">${fmtPct(testAcc)}</p></div>
+          </div>`);
+        renderConfusion(conf);
+      } else {
+        els.confusionPanel.innerHTML = `<div class="muted">Not enough holdout data to compute a confusion matrix.</div>`;
+      }
+
+      els.saveModelBtn.disabled = false;
+      els.downloadLabelsBtn.disabled = false;
+
+      // Cleanup
+      cleanupTrainTensors();
+
+      function cleanupTrainTensors() {
+        xTrain?.dispose(); xTest?.dispose(); yTrain?.dispose(); yTest?.dispose();
+      }
+
+      els.trainBtn.disabled = false;
+    }
+
+    function buildClassifier(numClasses) {
+      const m = tf.sequential();
+      m.add(tf.layers.dense({ units: 256, activation: 'relu', inputShape: [512] }));
+      m.add(tf.layers.dropout({ rate: 0.3 }));
+      m.add(tf.layers.dense({ units: numClasses, activation: 'softmax' }));
+      m.compile({
+        optimizer: tf.train.adam(1e-3),
+        loss: 'categoricalCrossentropy',
+        metrics: ['accuracy']
+      });
+      return m;
+    }
+
+    function labelsToOneHot(labels, depth) {
+      const idx = tf.tensor1d(labels, 'int32');
+      const oh  = tf.oneHot(idx, depth).toFloat();
+      idx.dispose();
+      return oh;
+    }
+
+    function fmtPct(x) {
+      if (x == null || isNaN(x)) return '—';
+      return (x * 100).toFixed(1) + '%';
+    }
+
+    function metricBlock({epochsDone, epochsTotal, loss, acc, vLoss, vAcc}) {
+      const kv = (k,v) => `<div class="kv"><p class="k">${k}</p><p class="v">${v}</p></div>`;
+      return `<div class="kvs">
+        ${kv('Epoch', `${epochsDone}/${epochsTotal}`)}
+        ${kv('Train loss', loss?.toFixed?.(4) ?? '—')}
+        ${kv('Train accuracy', acc ?? '—')}
+        ${kv('Val loss', vLoss?.toFixed?.(4) ?? '—')}
+        ${kv('Val accuracy', vAcc ?? '—')}
+      </div>`;
+    }
+
+    function renderConfusion(matrix) {
+      const header = `<tr><th></th>${classes.map(c => `<th>Pred: ${escapeHTML(c)}</th>`).join('')}</tr>`;
+      const rows = matrix.map((row, i) => {
+        const t = row.reduce((a,b)=>a+b,0) || 1;
+        const cells = row.map(v => `<td>${v}</td>`).join('');
+        return `<tr><th>True: ${escapeHTML(classes[i])}</th>${cells}</tr>`;
+      }).join('');
+      els.confusionPanel.innerHTML = `
+        <h3>Confusion matrix</h3>
+        <table>${header}${rows}</table>
+      `;
+    }
+
+    function confusionMatrix(yTrue, yPred, k) {
+      const m = Array.from({length: k}, () => Array.from({length:k}, () => 0));
+      for (let i = 0; i < yTrue.length; i++) m[yTrue[i]][yPred[i]]++;
+      return m;
+    }
+
+    function accuracy(yTrue, yPred) {
+      let ok = 0;
+      for (let i = 0; i < yTrue.length; i++) if (yTrue[i] === yPred[i]) ok++;
+      return yTrue.length ? ok / yTrue.length : null;
+    }
+
+    function clampInt(v, lo, hi) {
+      v = parseInt(v, 10);
+      if (isNaN(v)) v = lo;
+      return Math.max(lo, Math.min(hi, v));
+    }
+
+    function escapeHTML(s) {
+      return String(s).replace(/[&<>"'`=\/]/g, c => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'
+      }[c]));
+    }
+
+    // ---------- Prediction ----------
+    async function onPredict() {
+      if (!classifier) { setStatus(els.predictStatus, 'Train a model first.', 'warn'); return; }
+      const text = els.predictText.value.trim();
+      if (!text) { setStatus(els.predictStatus, 'Enter some text to classify.', 'warn'); return; }
+      setStatus(els.predictStatus, 'Embedding…');
+      let emb = null, probs = null;
+      try {
+        emb = await embedder.embed([text]);
+        const logits = classifier.predict(emb);
+        probs = await logits.data();
+        logits.dispose();
+      } catch (err) {
+        setStatus(els.predictStatus, 'Prediction failed: ' + err.message, 'err');
+        emb?.dispose();
+        return;
+      }
+      emb.dispose();
+      setStatus(els.predictStatus, 'Done ✓', 'good');
+
+      // Rank
+      const items = probs.map((p, i) => ({ label: classes[i], p, i }))
+                         .sort((a,b) => b.p - a.p);
+      const top = items[0];
+      const rows = items.map(it =>
+        `<tr><td>${escapeHTML(it.label)}</td><td>${(it.p*100).toFixed(1)}%</td></tr>`
+      ).join('');
+      els.predictions.innerHTML = `
+        <div class="kvs">
+          <div class="kv"><p class="k">Top class</p><p class="v"><strong>${escapeHTML(top.label)}</strong></p></div>
+          <div class="kv"><p class="k">Confidence</p><p class="v">${(top.p*100).toFixed(1)}%</p></div>
+        </div>
+        <div class="divider"></div>
+        <table>
+          <thead><tr><th>Class</th><th>Probability</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    // ---------- Export ----------
+    async function onSaveModel() {
+      if (!classifier) return;
+      try {
+        await classifier.save('downloads://PromptClassifier');
+      } catch (err) {
+        alert('Save failed: ' + err.message);
+      }
+    }
+
+    function onDownloadLabels() {
+      const data = {
+        labels: classes,
+        embedder: 'universal-sentence-encoder/1.3.3',
+        createdAt: new Date().toISOString()
+      };
+      downloadJSON(data, 'labels.json');
+    }
+
+    function onDownloadDataset() {
+      const data = {
+        labels: classes,
+        samples: dataset.map(d => ({ text: d.text, labelIndex: d.labelIndex, labelName: d.labelName }))
+      };
+      downloadJSON(data, 'dataset.json');
+    }
+
+    function downloadJSON(obj, filename) {
+      const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+      a.remove(); URL.revokeObjectURL(url);
+    }
+  </script>
+</body>
+</html>
