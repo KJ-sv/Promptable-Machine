@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Text Classifier Demo (USE + TF.js)</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #111831;
+      --panel-2: #0e1530;
+      --text: #e7ebff;
+      --text-dim: #a8b0d9;
+      --brand: #7aa2ff;
+      --accent: #68e0cf;
+      --danger: #ff6b6b;
+      --good: #59d685;
+      --muted: #1a244a;
+    }
+    html, body { height: 100%; }
+    body {
+      margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, 'Helvetica Neue', Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+      background: radial-gradient(1200px 800px at 10% -10%, #19224f55, transparent), var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 28px 18px 64px; }
+    header { display:flex; align-items:center; gap:16px; margin-bottom: 18px; }
+    header h1 { font-size: clamp(20px, 2.4vw, 32px); margin: 0; letter-spacing: .3px; }
+    header .pill { font-size: 12px; padding: 6px 10px; border-radius: 999px; background: linear-gradient(90deg, var(--brand), #9a7dff); color: #0c1030; font-weight: 700; }
+
+    .grid { display:grid; gap: 16px; grid-template-columns: repeat(12, 1fr); }
+    .card { grid-column: span 12; background: linear-gradient(180deg, var(--panel), var(--panel-2)); border: 1px solid #223063; border-radius: 16px; padding: 16px; box-shadow: 0 10px 30px #0006; }
+    .card h2 { margin: 4px 0 10px; font-size: 18px; letter-spacing: .2px; }
+    .card .sub { color: var(--text-dim); font-size: 13px; margin: 0 0 10px; }
+
+    @media (min-width: 880px) {
+      .span-7 { grid-column: span 7; }
+      .span-5 { grid-column: span 5; }
+      .span-6 { grid-column: span 6; }
+    }
+
+    textarea, input[type="text"], input[type="number"] { width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid #243367; background: #0e1530; color: var(--text); font-size: 14px; }
+    textarea { min-height: 110px; resize: vertical; }
+    label { display:block; font-size: 12px; color: var(--text-dim); margin: 10px 0 6px; }
+
+    .row { display:flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .btn { appearance: none; border: 1px solid #2a448a; background: #162457; color: var(--text); padding: 10px 14px; border-radius: 12px; font-weight: 700; cursor: pointer; transition: .2s ease; }
+    .btn:hover { background: #1b2a62; transform: translateY(-1px); }
+    .btn:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+    .btn.secondary { border-color: #2c365f; background: #121b3b; font-weight: 600; }
+    .btn.good { border-color: #2b7a4d; background: #123926; }
+    .btn.danger { border-color: #6d2c2c; background: #2a1212; }
+
+    .kpi { display:flex; gap: 16px; flex-wrap: wrap; }
+    .kpi .chip { background: #101a3b; border: 1px solid #26346a; padding: 8px 10px; border-radius: 12px; font-size: 13px; color: var(--text-dim); }
+    .kpi .chip b { color: var(--text); }
+
+    .examples { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    .examples th, .examples td { padding: 8px 10px; border-bottom: 1px solid #223063; text-align: left; font-size: 13px; }
+    .examples th { color: var(--text-dim); font-weight: 600; }
+    .examples .lbl { display:inline-flex; align-items:center; gap:6px; background: #111d45; border: 1px solid #2a3a7a; padding: 4px 8px; border-radius: 999px; font-size: 12px; }
+
+    .status { font-size: 13px; color: var(--text-dim); }
+    .status.ok { color: var(--good); }
+    .status.bad { color: var(--danger); }
+
+    .output { font-size: 15px; margin-top: 10px; padding: 10px 12px; background: #0f1633; border: 1px solid #243367; border-radius: 12px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
+    footer { margin-top: 28px; color: #8fa4ffb0; font-size: 12px; }
+  </style>
+  <!-- TFJS core (pins to v4.20.0 as user had) -->
+  <script defer src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+  <!-- Universal Sentence Encoder -->
+  <script defer src="https://cdn.jsdelivr.net/npm/@tensorflow-models/universal-sentence-encoder@1.3.3/dist/universal-sentence-encoder.min.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <span class="pill">TF.js + USE</span>
+      <h1>Text Classifier (client‑side)</h1>
+    </header>
+
+    <div class="grid">
+      <section class="card span-7" id="collect">
+        <h2>1) Collect training examples</h2>
+        <p class="sub">Enter some text and a label, then add it to your dataset. Repeat for each class.</p>
+        <label for="exText">Example text</label>
+        <textarea id="exText" placeholder="Type or paste a short sentence…"></textarea>
+        <div class="row">
+          <div style="flex:1 1 220px; min-width:220px;">
+            <label for="exLabel">Label</label>
+            <input id="exLabel" list="labelsList" class="mono" placeholder="e.g., positive, negative" />
+            <datalist id="labelsList"></datalist>
+          </div>
+          <button id="btnAdd" class="btn" disabled>Add example</button>
+          <button id="btnClear" class="btn secondary">Clear dataset</button>
+          <button id="btnDownloadCSV" class="btn secondary">Download CSV</button>
+          <button id="btnDownloadJSON" class="btn secondary">Download labels.json</button>
+        </div>
+        <div class="kpi" id="kpis"></div>
+        <table class="examples" id="examplesTbl" aria-live="polite">
+          <thead><tr><th style="width:72px;">#</th><th>Text</th><th style="width:180px;">Label</th><th style="width:80px;">Actions</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section class="card span-5" id="load">
+        <h2>Runtime status</h2>
+        <div class="sub">Library loading and backend readiness</div>
+        <div>TensorFlow.js: <span id="tfStatus" class="status">loading…</span></div>
+        <div>USE embedder: <span id="useStatus" class="status">loading…</span></div>
+        <div>Backend: <span id="backendStatus" class="status">—</span></div>
+        <hr style="border:none;border-top:1px solid #223063; margin: 12px 0;" />
+        <div class="sub">Tips</div>
+        <ul style="margin:0 0 0 18px; padding:0; line-height:1.6;">
+          <li>Aim for at least <b>10–20 examples per class</b> to start.</li>
+          <li>Keep texts short and focused (1–2 sentences).</li>
+          <li>Balance the number of examples across labels.</li>
+        </ul>
+      </section>
+
+      <section class="card span-7" id="train">
+        <h2>2) Train the classifier</h2>
+        <div class="row">
+          <label>Epochs <input id="epochs" type="number" value="12" min="1" max="200" style="width:92px; margin-left:8px;"></label>
+          <label>Batch size <input id="batch" type="number" value="8" min="1" max="128" style="width:92px; margin-left:8px;"></label>
+          <button id="btnTrain" class="btn good" disabled>Train model</button>
+        </div>
+        <div id="trainStatus" class="output mono">Waiting for data…</div>
+      </section>
+
+      <section class="card span-5" id="predict">
+        <h2>3) Predict</h2>
+        <label for="predText">Text to classify</label>
+        <textarea id="predText" placeholder="Type text to classify…"></textarea>
+        <div class="row">
+          <button id="btnPredict" class="btn" disabled>Predict label</button>
+        </div>
+        <div id="predOut" class="output">—</div>
+      </section>
+    </div>
+
+    <footer>
+      <div>Runs entirely in your browser. No data leaves your device.</div>
+    </footer>
+  </div>
+
+  <script>
+  // ---------- Utilities ----------
+  const $ = (sel, root=document) => root.querySelector(sel);
+  const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const fmtPct = (x) => (x*100).toFixed(1) + '%';
+  const byId = (id) => document.getElementById(id);
+
+  async function waitFor(testFn, { timeoutMs = 20000, intervalMs = 60 } = {}) {
+    const t0 = performance.now();
+    while (performance.now() - t0 < timeoutMs) {
+      try { if (testFn()) return true; } catch {}
+      await sleep(intervalMs);
+    }
+    return false;
+  }
+
+  function download(filename, text, type='text/plain') {
+    const blob = new Blob([text], {type});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    setTimeout(()=> URL.revokeObjectURL(url), 1500);
+  }
+
+  // ---------- App State ----------
+  const state = {
+    examples: /** @type {{text:string,label:string}[]} */([]),
+    labels: new Set(),
+    model: null,
+    embedder: null,
+    ready: false,
+  };
+
+  function refreshDatalist() {
+    const dl = byId('labelsList');
+    dl.innerHTML = '';
+    for (const l of state.labels) {
+      const opt = document.createElement('option');
+      opt.value = l; dl.appendChild(opt);
+    }
+  }
+
+  function refreshExamplesTable() {
+    const tbody = $('#examplesTbl tbody');
+    tbody.innerHTML = '';
+    state.examples.forEach((ex, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${i+1}</td>
+        <td>${ex.text.replace(/[\n\r]+/g,' ').slice(0, 220)}</td>
+        <td><span class="lbl">${ex.label}</span></td>
+        <td><button class="btn danger" data-i="${i}">Delete</button></td>`;
+      tbody.appendChild(tr);
+    });
+    tbody.onclick = (e) => {
+      const btn = e.target.closest('button.btn.danger');
+      if (!btn) return;
+      const idx = +btn.getAttribute('data-i');
+      state.examples.splice(idx,1);
+      rebuildLabels();
+      refreshExamplesTable();
+      refreshKPIs();
+      refreshButtons();
+    };
+  }
+
+  function rebuildLabels() {
+    state.labels = new Set(state.examples.map(e=>e.label));
+    refreshDatalist();
+  }
+
+  function refreshKPIs() {
+    const el = byId('kpis');
+    const counts = {};
+    for (const l of state.labels) counts[l] = 0;
+    for (const e of state.examples) counts[e.label] = (counts[e.label]||0)+1;
+    const chips = [
+      `<span class="chip"><b>${state.examples.length}</b> examples</span>`
+    ];
+    for (const [l, c] of Object.entries(counts)) chips.push(`<span class="chip"><b>${c}</b> × <span class="mono">${l}</span></span>`);
+    el.innerHTML = chips.join(' ');
+  }
+
+  function refreshButtons() {
+    byId('btnAdd').disabled = !byId('exText').value.trim() || !byId('exLabel').value.trim();
+    byId('btnTrain').disabled = !state.ready || state.labels.size < 2 || state.examples.length < 2;
+    byId('btnPredict').disabled = !state.model || !byId('predText').value.trim();
+  }
+
+  // ---------- ML bits ----------
+  async function ensureBackends() {
+    // Prefer webgl if available, else CPU.
+    try { await tf.setBackend('webgl'); } catch {}
+    await tf.ready();
+    byId('backendStatus').textContent = tf.getBackend();
+  }
+
+  async function createModel(numClasses) {
+    const m = tf.sequential();
+    // USE outputs 512-dim embeddings
+    m.add(tf.layers.dense({ units: 128, activation: 'relu', inputShape: [512] }));
+    m.add(tf.layers.dropout({ rate: 0.2 }));
+    m.add(tf.layers.dense({ units: numClasses, activation: 'softmax' }));
+    m.compile({ optimizer: tf.train.adam(0.001), loss: 'categoricalCrossentropy', metrics: ['accuracy'] });
+    return m;
+  }
+
+  async function embedTexts(texts) {
+    // Batched embedding
+    const embs = await state.embedder.embed(texts);
+    return embs; // Tensor2D [N,512]
+  }
+
+  function oneHotIndices(labelsArr) {
+    const uniq = Array.from(state.labels);
+    const idxOf = new Map(uniq.map((l,i)=>[l,i]));
+    const ys = tf.tidy(()=> tf.tensor2d(labelsArr.map(l=>{
+      const row = new Array(uniq.length).fill(0); row[idxOf.get(l)] = 1; return row;
+    })) );
+    return { ys, uniq };
+  }
+
+  async function trainModel() {
+    const out = byId('trainStatus');
+    if (state.examples.length < 2 || state.labels.size < 2) {
+      out.textContent = 'Need at least 2 examples across 2 labels.';
+      return;
+    }
+    out.textContent = 'Embedding training examples…';
+    const texts = state.examples.map(e=>e.text);
+    const labelsArr = state.examples.map(e=>e.label);
+
+    const xs = await embedTexts(texts); // [N,512]
+    const { ys, uniq } = oneHotIndices(labelsArr); // [N,C]
+
+    if (state.model) { state.model.dispose(); }
+    state.model = await createModel(uniq.length);
+
+    const epochs = Math.max(1, Math.min(200, +byId('epochs').value||10));
+    const batchSize = Math.max(1, Math.min(128, +byId('batch').value||8));
+
+    out.textContent = `Training… (epochs=${epochs}, batch=${batchSize})`;
+
+    const hist = await state.model.fit(xs, ys, {
+      epochs,
+      batchSize,
+      shuffle: true,
+      validationSplit: Math.min(0.2, Math.max(0, (texts.length >= 5 ? 0.2 : 0))),
+      callbacks: {
+        onEpochEnd: async (epoch, logs) => {
+          const acc = logs.val_acc ?? logs.val_accuracy ?? logs.acc ?? logs.accuracy;
+          out.textContent = `Epoch ${epoch+1}/${epochs} — loss=${(logs.loss??0).toFixed(4)}${acc?`, acc=${(acc).toFixed(3)}`:''}`;
+          await tf.nextFrame();
+        }
+      }
+    });
+
+    xs.dispose(); ys.dispose();
+    out.textContent = `Done. Final loss=${hist.history.loss.at(-1).toFixed(4)}${hist.history.accuracy?`, acc=${hist.history.accuracy.at(-1).toFixed(3)}`:''}`;
+    refreshButtons();
+  }
+
+  async function predictText() {
+    if (!state.model) return;
+    const text = byId('predText').value.trim();
+    if (!text) return;
+    const out = byId('predOut');
+    out.textContent = 'Embedding…';
+    const x = await embedTexts([text]);
+    const probs = state.model.predict(x);
+    const data = await probs.data();
+    const labels = Array.from(state.labels);
+    let bestI = 0; for (let i=1;i<data.length;i++) if (data[i]>data[bestI]) bestI=i;
+    const best = labels[bestI];
+    out.innerHTML = `Prediction: <b>${best}</b> · Confidence ${fmtPct(data[bestI])}<br><span class="mono">[${data.map(v=>v.toFixed(3)).join(', ')}]</span>`;
+    x.dispose(); probs.dispose?.();
+  }
+
+  // ---------- Downloads ----------
+  function downloads() {
+    byId('btnDownloadCSV').onclick = () => {
+      const header = 'text,label\n';
+      const rows = state.examples.map(e=>`\"${e.text.replaceAll('\"','\"\"')}\" , \"${e.label.replaceAll('\"','\"\"')}\"`).join('\n');
+      // The replaceAll line above keeps quotes safe in CSV; browsers handle both double- and backslash-escaped variants.
+      const csv = 'text,label\n' + state.examples.map(e => {
+        const t = '"' + e.text.replace(/"/g, '""') + '"';
+        const l = '"' + e.label.replace(/"/g, '""') + '"';
+        return `${t},${l}`;
+      }).join('\n');
+      download('dataset.csv', csv, 'text/csv');
+    };
+    byId('btnDownloadJSON').onclick = () => {
+      download('labels.json', JSON.stringify({ labels: Array.from(state.labels) }, null, 2), 'application/json');
+    };
+  }
+
+  // ---------- Wire UI ----------
+  function wireUI() {
+    const exText = byId('exText');
+    const exLabel = byId('exLabel');
+
+    exText.addEventListener('input', refreshButtons);
+    exLabel.addEventListener('input', refreshButtons);
+
+    byId('btnAdd').onclick = () => {
+      const t = exText.value.trim();
+      const l = exLabel.value.trim();
+      if (!t || !l) return;
+      state.examples.push({ text: t, label: l });
+      state.labels.add(l);
+      exText.value = '';
+      exLabel.value = '';
+      refreshDatalist();
+      refreshExamplesTable();
+      refreshKPIs();
+      refreshButtons();
+    };
+
+    byId('btnClear').onclick = () => {
+      state.examples = [];
+      state.labels = new Set();
+      refreshDatalist();
+      refreshExamplesTable();
+      refreshKPIs();
+      refreshButtons();
+      byId('trainStatus').textContent = 'Waiting for data…';
+      byId('predOut').textContent = '—';
+    };
+
+    byId('btnTrain').onclick = trainModel;
+    byId('btnPredict').onclick = predictText;
+
+    byId('predText').addEventListener('input', refreshButtons);
+  }
+
+  // ---------- Boot ----------
+  (async function init() {
+    // Wait for TF and USE to be defined
+    const gotTF = await waitFor(()=> window.tf);
+    byId('tfStatus').textContent = gotTF ? `loaded (v${tf?.version_core||'?'})` : 'not found';
+    byId('tfStatus').className = 'status ' + (gotTF?'ok':'bad');
+    if (!gotTF) return;
+
+    await ensureBackends();
+
+    const gotUSE = await waitFor(()=> window.use && use.load);
+    byId('useStatus').textContent = gotUSE ? 'loading model…' : 'not found';
+    byId('useStatus').className = 'status ' + (gotUSE?'':'bad');
+    if (!gotUSE) return;
+
+    try {
+      state.embedder = await use.load();
+      state.ready = true;
+      byId('useStatus').textContent = 'ready';
+      byId('useStatus').className = 'status ok';
+    } catch (err) {
+      console.error(err);
+      byId('useStatus').textContent = 'failed to load';
+      byId('useStatus').className = 'status bad';
+      state.ready = false;
+    }
+
+    wireUI();
+    downloads();
+    refreshButtons();
+  })();
+  </script>
+</body>
+</html>
