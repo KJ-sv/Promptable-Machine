@@ -101,7 +101,7 @@
         <label for="exampleText">Example text</label>
         <textarea id="exampleText" placeholder="Write one example per add. Keep it short (1–2 sentences)."></textarea>
         <div class="row">
-          <button id="addExampleBtn" class="primary">Add example</button>
+          <button id="addExampleBtn" class="primary" disabled>Add example</button>
           <span id="addExampleStatus" class="status"></span>
         </div>
         <div class="kvs" id="countsPanel"></div>
@@ -128,7 +128,7 @@
             <div class="hint">Percent for holdout</div>
           </div>
           <div style="grid-column: span 3; display:flex; align-items:flex-end; justify-content:flex-end;">
-            <button id="trainBtn" class="primary">Train model</button>
+            <button id="trainBtn" class="primary" disabled>Train model</button>
           </div>
         </div>
         <div class="row" style="margin-top: 8px;">
@@ -211,10 +211,13 @@
       els.downloadDatasetBtn.addEventListener('click', onDownloadDataset);
       els.predictBtn.addEventListener('click', onPredict);
 
-      // Load USE
+      // NEW: Enable/disable the "Add example" button as the user types
+      els.exampleText.addEventListener('input', () => {
+        els.addExampleBtn.disabled = classes.length === 0 || !els.exampleText.value.trim();
+      });
+
       setStatus(els.trainStatus, 'Loading Universal Sentence Encoder…');
       try {
-        // Wait for TF + USE scripts (loaded via <script defer>)
         await waitFor(() => window.use && window.tf);
         embedder = await use.load();
         isReady = true;
